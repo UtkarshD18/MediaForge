@@ -310,44 +310,151 @@ def run_doctor(project_root: Path) -> None:
     print()
 
 
+def get_gpu_info() -> tuple[str, bool, bool]:
+    """
+    Detects GPU model name, CUDA, and NVDEC support.
+    """
+    import shutil
+    import subprocess
+
+    gpu_model = "None / CPU Only"
+    cuda_ok = False
+    nvdec_ok = False
+
+    # Check nvidia-smi
+    nvidia_smi = shutil.which("nvidia-smi")
+    if nvidia_smi:
+        try:
+            res = subprocess.run(
+                ["nvidia-smi", "--query-gpu=name", "--format=csv,noheader"],
+                capture_output=True,
+                text=True,
+                timeout=3.0,
+            )
+            if res.returncode == 0 and res.stdout.strip():
+                gpu_model = res.stdout.strip()
+        except Exception:
+            pass
+
+    # Check CUDA support via ffmpeg decoders
+    try:
+        res = subprocess.run(["ffmpeg", "-decoders"], capture_output=True, text=True, timeout=3.0)
+        if res.returncode == 0:
+            decoders = res.stdout.lower()
+            if "h264_cuvid" in decoders or "hevc_cuvid" in decoders:
+                nvdec_ok = True
+                cuda_ok = True
+    except Exception:
+        pass
+
+    # If cuda support is available but nvidia-smi didn't return a name, check lspci
+    if gpu_model == "None / CPU Only" and cuda_ok:
+        gpu_model = "NVIDIA GPU"
+
+    return gpu_model, cuda_ok, nvdec_ok
+
+
 def print_status(project_root: Path) -> None:
     """
-    Queries running daemon state and prints CLI overview.
+    Queries running daemon state and prints the MediaForge console dashboard.
     """
+    import os
+    from pathlib import Path
+
     socket_path = get_runtime_socket_path()
     client = IpcClient(socket_path)
 
+    # 1. Gather GPU metrics
+    gpu_model, cuda_ok, nvdec_ok = get_gpu_info()
+
+    # 2. Handle daemon offline scenario
     if not client.is_daemon_running():
-        print("MediaForge ingestion daemon is currently OFFLINE.")
+        print("══════════════════════════════════════")
+        print("MediaForge")
+        print("══════════════════════════════════════")
+        print("Daemon        ✗ Stopped")
+        print("Watcher       ✗ Stopped")
+        print("Queue         --")
+        print(f"GPU           {gpu_model}")
+        print(f"              CUDA {'✓' if cuda_ok else '✗'}")
+        print(f"              NVDEC {'✓' if nvdec_ok else '✗'}")
+        print("SQLite        Disconnected")
+        print("IPC           ✗ Disconnected")
+        print("Incoming      --")
+        print("Processed     --")
+        print("Duplicates    --")
+        print("\nLast Job      --")
+        print("══════════════════════════════════════")
         return
 
+    # 3. Handle daemon online scenario
     resp = client.send_command({"command": "status"})
     if not resp.get("success"):
         print(f"Error querying daemon: {resp.get('error')}")
         return
 
-    print(f"MediaForge Daemon Status: {resp.get('status', 'unknown').upper()}")
+    status_str = resp.get("status", "unknown")
+    watcher_state = "✓ Watching" if status_str == "watching" else "✗ Paused"
+    daemon_state = "✓ Running"
+
+    queue_size = resp.get("queue_size", 0)
+    processed_size = resp.get("processed_size", 0)
+    duplicate_size = resp.get("duplicate_size", 0)
+
+    # Ingestion folders
+    incoming_raw = resp.get("config", {}).get("incoming_folder", "~/Videos/Incoming")
+    incoming_dir = Path(os.path.expanduser(incoming_raw)).resolve()
+    incoming_count = 0
+    if incoming_dir.exists() and incoming_dir.is_dir():
+        incoming_count = len([f for f in incoming_dir.glob("*") if f.is_file()])
+
+    print("══════════════════════════════════════")
+    print("MediaForge")
+    print("══════════════════════════════════════")
+    print(f"Daemon        {daemon_state}")
+    print(f"Watcher       {watcher_state}")
+    print(f"Queue         {queue_size} jobs")
+    print(f"GPU           {gpu_model}")
+    print(f"              CUDA {'✓' if cuda_ok else '✗'}")
+    print(f"              NVDEC {'✓' if nvdec_ok else '✗'}")
+    print("SQLite        Connected")
+    print("IPC           Connected")
+    print(f"Incoming      {incoming_count}")
+    print(f"Processed     {processed_size}")
+    print(f"Duplicates    {duplicate_size}")
+
+    # Active or Last Job rendering
     active = resp.get("active_job")
+    last_job = resp.get("last_job")
+
     if active:
         name = Path(active["filepath"]).name
-        print(f"Current Job: {name}")
-        print(f"Progress   : {active.get('progress', 0.0):.1f}%")
+        progress = active.get("progress", 0.0)
         eta = active.get("eta_seconds", 0.0)
-        print(f"ETA        : {int(eta // 60):02d}:{int(eta % 60):02d}")
+        status_label = active.get("status", "processing").capitalize()
+        print(f"\nActive Job    {name}")
+        print(f"              Status: {status_label}")
+        print(f"              Progress: {progress:.1f}%")
+        print(f"              ETA: {int(eta // 60):02d}:{int(eta % 60):02d}")
+    elif last_job:
+        name = last_job.get("original_name", "unknown")
+        status_label = last_job.get("status", "completed").capitalize()
+        conv_time = last_job.get("conversion_time_seconds", 0.0)
+        out_path = last_job.get("converted_path", "")
+
+        # Format output path using tilde if under home
+        home_str = str(Path.home())
+        if out_path.startswith(home_str):
+            out_path = out_path.replace(home_str, "~", 1)
+
+        print(f"\nLast Job      {name}")
+        print(f"              {status_label}")
+        print(f"              {int(conv_time)} seconds")
+        print(f"              Output: {out_path}")
     else:
-        print("Current Job: IDLE")
+        print("\nLast Job      --")
 
-    analytics = resp.get("analytics", {})
-    print("----------------------------------------")
-    print(f"Ingestion Count: {analytics.get('total_count', 0)} files")
-
-    bytes_val = analytics.get("total_size_bytes", 0)
-    size_str = f"{bytes_val / 1024**2:.1f} MB" if bytes_val < 1024**3 else f"{bytes_val / 1024**3:.2f} GB"
-    print(f"Ingested Size  : {size_str}")
-
-    time_sec = analytics.get("time_saved_seconds", 0.0)
-    time_str = f"{time_sec / 60:.1f} minutes" if time_sec < 3600 else f"{time_sec / 3600:.1f} hours"
-    print(f"Time Saved     : {time_str}")
+    print("══════════════════════════════════════")
 
 
 def main() -> None:
@@ -374,6 +481,7 @@ def main() -> None:
 
     # 5. Status Subcommand
     subparsers.add_parser("status", help="Get status of running watcher daemon.")
+    subparsers.add_parser("dashboard", help="Display the console status dashboard.")
 
     # 6. Stop Subcommand
     subparsers.add_parser("stop", help="Shutdown the running daemon.")
@@ -400,7 +508,7 @@ def main() -> None:
         run_local_conversion(project_root, args.input_file, args.profile_name)
     elif args.command == "doctor":
         run_doctor(project_root)
-    elif args.command == "status":
+    elif args.command in ("status", "dashboard"):
         print_status(project_root)
     elif args.command == "stop":
         socket_path = get_runtime_socket_path()

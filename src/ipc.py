@@ -116,6 +116,23 @@ class IpcServer(threading.Thread):
             active_job_row = self.db.get_active_job()
             active_job = dict(active_job_row) if active_job_row else None
 
+            # Fetch queue size
+            queue_rows = self.db.execute_read("SELECT COUNT(*) as count FROM jobs WHERE status = 'queued'")
+            queue_size = queue_rows[0]["count"] if queue_rows else 0
+
+            # Fetch processed and duplicate counts from history
+            processed_rows = self.db.execute_read("SELECT COUNT(*) as count FROM history WHERE status = 'completed'")
+            processed_size = processed_rows[0]["count"] if processed_rows else 0
+
+            duplicate_rows = self.db.execute_read("SELECT COUNT(*) as count FROM history WHERE status = 'duplicate'")
+            duplicate_size = duplicate_rows[0]["count"] if duplicate_rows else 0
+
+            # Fetch last job from history
+            last_job_rows = self.db.execute_read(
+                "SELECT original_name, status, conversion_time_seconds, converted_path FROM history ORDER BY id DESC LIMIT 1"
+            )
+            last_job = dict(last_job_rows[0]) if last_job_rows else None
+
             # Fetch jobs list
             jobs_rows = self.db.list_jobs()
             jobs_list = [dict(r) for r in jobs_rows[:15]]  # limit to top 15 for payload size
@@ -130,6 +147,10 @@ class IpcServer(threading.Thread):
                 "success": True,
                 "status": status_str,
                 "active_job": active_job,
+                "queue_size": queue_size,
+                "processed_size": processed_size,
+                "duplicate_size": duplicate_size,
+                "last_job": last_job,
                 "jobs_list": jobs_list,
                 "analytics": analytics,
                 "config": {
