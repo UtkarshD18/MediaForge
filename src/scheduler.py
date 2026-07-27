@@ -12,6 +12,7 @@ class QueueScheduler(threading.Thread):
     Background worker thread polling SQLite jobs and dispatching them sequentially
     to the PipelineExecutor. Supports pausing/resuming.
     """
+
     def __init__(self, db: DatabaseManager, executor: PipelineExecutor) -> None:
         super().__init__()
         self.db = db
@@ -54,7 +55,7 @@ class QueueScheduler(threading.Thread):
         Main execution loop. Polling SQLite for next job.
         """
         self.logger.info("Queue Scheduler thread started.")
-        
+
         # Reset stuck jobs on start (e.g. from crash or abrupt process kill)
         self.db.reset_stuck_jobs()
         self.bus.publish(Events.QUEUE_UPDATED)
@@ -79,10 +80,10 @@ class QueueScheduler(threading.Thread):
                     job_id = next_job["id"]
                     self.logger.info(f"Scheduler picked up job {job_id} from queue.")
                     self.bus.publish(Events.QUEUE_UPDATED)
-                    
+
                     # Blocking call executing the pipeline stages
                     success = self.executor.run_pipeline(job_id)
-                    
+
                     self.logger.info(f"Scheduler finished job {job_id}. Success={success}")
                     self.bus.publish(Events.QUEUE_UPDATED)
                 else:

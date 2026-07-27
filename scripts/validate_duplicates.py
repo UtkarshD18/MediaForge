@@ -5,9 +5,10 @@ from pathlib import Path
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(PROJECT_ROOT))
 
+from src.config import ConfigManager
 from src.db import DatabaseManager
 from src.executor import PipelineExecutor
-from src.config import ConfigManager
+
 
 def main():
     print("Duplicate Detection Validation starting...")
@@ -25,7 +26,7 @@ def main():
                 p.unlink()
             except Exception:
                 pass
-        
+
     db = DatabaseManager(db_path)
     config_mgr = ConfigManager(PROJECT_ROOT)
     executor = PipelineExecutor(db, config_mgr)
@@ -34,11 +35,11 @@ def main():
     input_master = PROJECT_ROOT / "test_input.mp4"
     temp_file1 = PROJECT_ROOT / "temp_input_1.mp4"
     temp_file2 = PROJECT_ROOT / "temp_input_2.mp4"
-    
+
     # Copy master to temp_file1
     with open(input_master, "rb") as sf, open(temp_file1, "wb") as df:
         df.write(sf.read())
-        
+
     # Simulate watcher queueing first job
     job_id_1 = db.add_job(str(temp_file1), "", "youtube")
     print(f"Queued initial job: ID={job_id_1}")
@@ -82,6 +83,7 @@ def main():
             f.write(line)
 
     print(f"Evidence log written to: {log_file}")
+
 
 if __name__ == "__main__":
     main()

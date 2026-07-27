@@ -20,7 +20,7 @@ from src.metadata import get_video_metadata
 from src.notifier import setup_notifier
 from src.processors.converter import ConversionJob, detect_gpu_support, run_conversion
 from src.scheduler import QueueScheduler
-from src.utils import wait_for_file_copy
+from src.utils import get_runtime_db_path, get_runtime_socket_path, wait_for_file_copy
 from src.watcher import FileWatcher
 
 
@@ -30,14 +30,14 @@ def run_daemon(project_root: Path) -> None:
     """
     # 1. Config Manager
     config_mgr = ConfigManager(project_root)
-    
+
     # 2. Logger Setup
     log_dir = project_root / "logs"
     logger = setup_logger(log_dir, config_mgr.config.logging_level if config_mgr.config else "INFO")
     logger.info("Initializing MediaForge Ingestion Daemon...")
 
     # 3. Database Setup
-    db_path = project_root / "mediaforge.db"
+    db_path = get_runtime_db_path()
     db = DatabaseManager(db_path)
 
     # 4. Notifier Setup
@@ -47,8 +47,8 @@ def run_daemon(project_root: Path) -> None:
     executor = PipelineExecutor(db, config_mgr)
     scheduler = QueueScheduler(db, executor)
     watcher = FileWatcher(db, config_mgr)
-    
-    socket_path = project_root / "mediaforge.sock"
+
+    socket_path = get_runtime_socket_path()
     ipc_server = IpcServer(socket_path, db, scheduler, executor, config_mgr)
 
     # Teardown event loop coordination
@@ -78,12 +78,13 @@ def run_daemon(project_root: Path) -> None:
     ipc_server.start()
 
     logger.info("MediaForge Ingestion Daemon is fully ACTIVE.")
-    
+
     # Block main thread until stop_event is set
     while not stop_event.is_set():
         time.sleep(1.0)
 
     logger.info("MediaForge Ingestion Daemon has shut down successfully.")
+
 
 def run_local_conversion(project_root: Path, file_path_str: str, profile_override: str | None = None) -> None:
     """
@@ -91,12 +92,12 @@ def run_local_conversion(project_root: Path, file_path_str: str, profile_overrid
     """
     config_mgr = ConfigManager(project_root)
     logger = setup_logger(project_root / "logs", "INFO")
-    
+
     file_path = Path(file_path_str).resolve()
     if not file_path.exists():
         logger.error(f"Target file not found: {file_path}")
         sys.exit(1)
-        
+
     profile_name = profile_override or config_mgr.config.active_profile if config_mgr.config else "youtube"
     profile = config_mgr.profiles.get(profile_name)
     if not profile:
@@ -104,17 +105,19 @@ def run_local_conversion(project_root: Path, file_path_str: str, profile_overrid
         sys.exit(1)
 
     logger.info(f"Running single file conversion for {file_path.name} using profile '{profile_name}'...")
-    
+
     # Verify copy
     wait_for_file_copy(file_path)
-    
+
     # Read meta
     meta = get_video_metadata(file_path)
-    logger.info(f"Metadata read - Codec: {meta['codec']} | Resolution: {meta['width']}x{meta['height']} | Duration: {meta['duration']}s")
-    
+    logger.info(
+        f"Metadata read - Codec: {meta['codec']} | Resolution: {meta['width']}x{meta['height']} | Duration: {meta['duration']}s"
+    )
+
     dest_dir = config_mgr.get_resolved_path("resolve_clips_folder")
     dest_path = dest_dir / f"{file_path.stem}.{profile.ext}"
-    
+
     # Resolve collision
     if dest_path.exists() and not (config_mgr.config.overwrite_existing if config_mgr.config else False):
         counter = 1
@@ -124,7 +127,7 @@ def run_local_conversion(project_root: Path, file_path_str: str, profile_overrid
                 dest_path = new_path
                 break
             counter += 1
-            
+
     gpu = detect_gpu_support()
     job = ConversionJob(
         input_path=file_path,
@@ -133,10 +136,11 @@ def run_local_conversion(project_root: Path, file_path_str: str, profile_overrid
         profile=profile.profile,
         audio_codec=profile.audio_codec,
         duration=meta["duration"],
-        hwaccel=gpu
+        hwaccel=gpu,
     )
 
     cancel_event = threading.Event()
+
     def on_progress(p, e, s):
         print(f"\rConversion Progress: {p:.1f}% | Speed: {s:.2f}x | ETA: {int(e)}s", end="", flush=True)
 
@@ -148,23 +152,24 @@ def run_local_conversion(project_root: Path, file_path_str: str, profile_overrid
         print(f"\nConversion failed: {e}")
         sys.exit(1)
 
+
 def run_doctor(project_root: Path) -> None:
     """
     MediaForge doctor subcommand system check verification.
     """
     import shutil
     import subprocess
-    
+
     print("\nMediaForge Doctor")
     print("----------------------------------------")
-    
+
     healthy = True
     errors = []
-    
+
     # 1. Python version
     py_ver = f"{sys.version.split()[0]}"
     print(f"✓ Python {py_ver}")
-    
+
     # 2. FFmpeg found
     ffmpeg_path = shutil.which("ffmpeg")
     if ffmpeg_path:
@@ -173,7 +178,7 @@ def run_doctor(project_root: Path) -> None:
         print("✗ FFmpeg missing")
         healthy = False
         errors.append("FFmpeg executable not found in system PATH.")
-        
+
     # 3. FFprobe found
     ffprobe_path = shutil.which("ffprobe")
     if ffprobe_path:
@@ -185,7 +190,7 @@ def run_doctor(project_root: Path) -> None:
 
     # 4. SQLite OK
     try:
-        db_path = project_root / "mediaforge.db"
+        db_path = get_runtime_db_path()
         db = DatabaseManager(db_path)
         # Test basic connection and write query
         db.execute_read("PRAGMA schema_version")
@@ -197,7 +202,8 @@ def run_doctor(project_root: Path) -> None:
 
     # 5. Watchdog OK
     try:
-        import watchdog
+        import watchdog  # noqa: F401
+
         print("✓ Watchdog OK")
     except ImportError:
         print("✗ Watchdog package missing")
@@ -262,7 +268,7 @@ def run_doctor(project_root: Path) -> None:
     for p_name, path in [
         ("Incoming", inc_path),
         ("Clips", clips_path),
-        ("Originals", config_mgr.get_resolved_path("originals_folder"))
+        ("Originals", config_mgr.get_resolved_path("originals_folder")),
     ]:
         if path.exists():
             test_file = path / ".mf_permission_test"
@@ -280,9 +286,7 @@ def run_doctor(project_root: Path) -> None:
     # 13. Systemd service enabled
     try:
         out = subprocess.run(
-            ["systemctl", "--user", "is-enabled", "mediaforge.service"],
-            capture_output=True,
-            text=True
+            ["systemctl", "--user", "is-enabled", "mediaforge.service"], capture_output=True, text=True
         )
         if out.stdout.strip() == "enabled":
             print("✓ Systemd service enabled")
@@ -305,13 +309,14 @@ def run_doctor(project_root: Path) -> None:
             print(f"  {idx}. {err}")
     print()
 
+
 def print_status(project_root: Path) -> None:
     """
     Queries running daemon state and prints CLI overview.
     """
-    socket_path = project_root / "mediaforge.sock"
+    socket_path = get_runtime_socket_path()
     client = IpcClient(socket_path)
-    
+
     if not client.is_daemon_running():
         print("MediaForge ingestion daemon is currently OFFLINE.")
         return
@@ -335,29 +340,30 @@ def print_status(project_root: Path) -> None:
     analytics = resp.get("analytics", {})
     print("----------------------------------------")
     print(f"Ingestion Count: {analytics.get('total_count', 0)} files")
-    
+
     bytes_val = analytics.get("total_size_bytes", 0)
     size_str = f"{bytes_val / 1024**2:.1f} MB" if bytes_val < 1024**3 else f"{bytes_val / 1024**3:.2f} GB"
     print(f"Ingested Size  : {size_str}")
-    
+
     time_sec = analytics.get("time_saved_seconds", 0.0)
     time_str = f"{time_sec / 60:.1f} minutes" if time_sec < 3600 else f"{time_sec / 3600:.1f} hours"
     print(f"Time Saved     : {time_str}")
 
+
 def main() -> None:
     # Resolve project root automatically based on python script layout location
     project_root = Path(__file__).parent.parent.resolve()
-    
+
     parser = argparse.ArgumentParser(description="MediaForge Ingestion Engine Utility")
     subparsers = parser.add_subparsers(dest="command", required=False)
-    
+
     # 1. Watch Subcommand
     subparsers.add_parser("watch", help="Start background file ingestion daemon.")
-    
+
     # 2. Convert Subcommand
     conv_parser = subparsers.add_parser("convert", help="Convert a file synchronously using default profile.")
     conv_parser.add_argument("input_file", type=str, help="Absolute path to target video file.")
-    
+
     # 3. Profile Subcommand
     prof_parser = subparsers.add_parser("profile", help="Convert a file synchronously using a specific profile.")
     prof_parser.add_argument("profile_name", type=str, help="Encoding profile name (e.g. proxy, social).")
@@ -365,23 +371,24 @@ def main() -> None:
 
     # 4. Doctor Subcommand
     subparsers.add_parser("doctor", help="Verify dependencies, file paths, and drivers.")
-    
+
     # 5. Status Subcommand
     subparsers.add_parser("status", help="Get status of running watcher daemon.")
-    
+
     # 6. Stop Subcommand
     subparsers.add_parser("stop", help="Shutdown the running daemon.")
-    
+
     # 7. GUI Subcommand
     subparsers.add_parser("gui", help="Open the MediaForge GUI Dashboard dashboard.")
-    
+
     args = parser.parse_args()
-    
+
     # Default to GUI if no arguments are provided
     if not args.command:
         # Launch PySide6 GUI
         from src.gui import start_gui
-        socket_path = project_root / "mediaforge.sock"
+
+        socket_path = get_runtime_socket_path()
         start_gui(socket_path, project_root)
         return
 
@@ -396,14 +403,16 @@ def main() -> None:
     elif args.command == "status":
         print_status(project_root)
     elif args.command == "stop":
-        socket_path = project_root / "mediaforge.sock"
+        socket_path = get_runtime_socket_path()
         client = IpcClient(socket_path)
         resp = client.send_command({"command": "stop"})
         print(resp.get("message", "Stop command sent."))
     elif args.command == "gui":
         from src.gui import start_gui
-        socket_path = project_root / "mediaforge.sock"
+
+        socket_path = get_runtime_socket_path()
         start_gui(socket_path, project_root)
+
 
 if __name__ == "__main__":
     main()

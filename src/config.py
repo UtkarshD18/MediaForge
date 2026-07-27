@@ -14,6 +14,7 @@ class ProfileConfig:
     audio_codec: str | None = None
     ext: str = "mov"
 
+
 @dataclass
 class AppConfig:
     version: int
@@ -27,36 +28,38 @@ class AppConfig:
     features: dict[str, bool]
     stability_duration: float
 
+
 class ConfigManager:
     """
     Manages loading, parsing, updating, and saving of application and profile settings.
     Automatically initializes working directories.
     """
+
     def __init__(self, project_root: Path) -> None:
         self.project_root = Path(project_root).resolve()
         self.config_dir = self.project_root / "config"
         self.config_file = self.config_dir / "config.yaml"
         self.profiles_dir = self.config_dir / "profiles"
-        
+
         self.config: AppConfig | None = None
         self.profiles: dict[str, ProfileConfig] = {}
         self.load()
- 
+
     def load(self) -> None:
         """
         Load config.yaml and all profile files from config/profiles/*.yaml
         """
         if not self.config_file.exists():
             raise FileNotFoundError(f"Configuration file not found at {self.config_file}")
- 
+
         with open(self.config_file, "r", encoding="utf-8") as f:
             data = yaml.safe_load(f) or {}
- 
+
         # Validate structure/version
         if data.get("version") != 1:
             # V1 is the only supported version right now. In future, we could trigger migrations here.
             pass
- 
+
         self.config = AppConfig(
             version=data.get("version", 1),
             incoming_folder=data.get("incoming_folder", "~/Videos/Incoming"),
@@ -66,13 +69,11 @@ class ConfigManager:
             overwrite_existing=data.get("overwrite_existing", False),
             notification_toggle=data.get("notification_toggle", True),
             logging_level=data.get("logging_level", "INFO"),
-            features=data.get("features", {
-                "thumbnails": True,
-                "notifications": True,
-                "gpu_monitor": True,
-                "resolve_integration": True
-            }),
-            stability_duration=float(data.get("stability_duration", 2.0))
+            features=data.get(
+                "features",
+                {"thumbnails": True, "notifications": True, "gpu_monitor": True, "resolve_integration": True},
+            ),
+            stability_duration=float(data.get("stability_duration", 2.0)),
         )
 
         # Load Profiles
@@ -86,7 +87,7 @@ class ConfigManager:
                             video_codec=prof_data.get("video_codec", "copy"),
                             profile=prof_data.get("profile"),
                             audio_codec=prof_data.get("audio_codec", "copy"),
-                            ext=prof_data.get("ext", "mov")
+                            ext=prof_data.get("ext", "mov"),
                         )
                 except Exception as e:
                     # In deep logging bootstrap, standard stdout fallback
@@ -101,7 +102,7 @@ class ConfigManager:
         """
         if not self.config:
             return
-        
+
         for folder_path_str in [
             self.config.incoming_folder,
             self.config.originals_folder,
@@ -143,12 +144,12 @@ class ConfigManager:
         """
         if not self.config:
             return
-            
+
         # Update our struct fields
         for k, v in updates.items():
             if hasattr(self.config, k):
                 setattr(self.config, k, v)
-        
+
         # Write to disk
         config_dict = asdict(self.config)
         with open(self.config_file, "w", encoding="utf-8") as f:
@@ -156,6 +157,6 @@ class ConfigManager:
 
         # Re-initialize directories just in case they changed
         self.ensure_directories()
-        
+
         # Notify subsystems
         get_event_bus().publish(Events.SETTINGS_CHANGED, self.config)

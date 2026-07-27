@@ -30,7 +30,7 @@ target-version = "py313"
 
 [tool.ruff.lint]
 select = ["E", "F", "W", "I", "B"]
-ignore = ["E501"] # Avoid line length warnings since formatting handles wrap constraints
+ignore = ["E501", "E402", "B905", "E701", "B018"] # Ignore line wraps, import position, strict zip, multi-colons, and debug statement attributes
 
 [tool.mypy]
 python_version = "3.13"

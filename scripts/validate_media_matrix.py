@@ -1,15 +1,15 @@
-import sys
-import time
-from pathlib import Path
 import subprocess
+import sys
+from pathlib import Path
 
 # Add project root to path
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(PROJECT_ROOT))
 
+from src.config import ConfigManager
 from src.db import DatabaseManager
 from src.executor import PipelineExecutor
-from src.config import ConfigManager
+
 
 def generate_video(codec: str, ext: str, output_path: Path, vfr: bool = False) -> bool:
     """
@@ -38,7 +38,7 @@ def generate_video(codec: str, ext: str, output_path: Path, vfr: bool = False) -
     cmd = ["ffmpeg", "-y"]
     cmd.extend(["-f", "lavfi", "-i", f"testsrc=duration=1:size={size}:rate=30"])
     cmd.extend(["-t", "1"])
-    
+
     if codec.startswith("h264"):
         cmd.extend(["-c:v", "libx264", "-pix_fmt", "yuv420p"])
     elif codec.startswith("hevc"):
@@ -53,15 +53,16 @@ def generate_video(codec: str, ext: str, output_path: Path, vfr: bool = False) -
         cmd.extend(["-c:v", "prores_ks", "-profile:v", "3"])
     else:
         cmd.extend(["-c:v", "copy"])
-        
+
     cmd.append(str(output_path))
-    
+
     try:
         subprocess.run(cmd, capture_output=True, check=True)
         return True
     except Exception as e:
         print(f"Failed to generate {codec} video: {e}")
         return False
+
 
 def main():
     print("Real World Media Ingestion Validation starting...")
@@ -101,7 +102,7 @@ def main():
         print(f"Generating and testing: {name}...")
         if generate_video(codec, ext, filepath, vfr):
             job_id = db.add_job(str(filepath), "", "youtube")
-            success = executor.run_pipeline(job_id)
+            executor.run_pipeline(job_id)
             jobs = db.execute_read("SELECT status, error_message FROM jobs WHERE id = ?", (job_id,))
             status = jobs[0]["status"]
             err = jobs[0]["error_message"]
@@ -134,34 +135,38 @@ def main():
     # Test Watchdog Ignore cases
     print("Verifying Watchdog exclusions...")
     from src.watcher import IngestionHandler
+
     handler = IngestionHandler(db, config_mgr)
-    
+
     # We test process_file ignores non-videos
     # Mock database add_job should not run
     initial_jobs_count = len(db.list_jobs())
     handler.process_file(str(temp_dir / "audio.mp3"))
     handler.process_file(str(temp_dir / "image.png"))
     handler.process_file(str(temp_dir / "doc.txt"))
-    
+
     final_jobs_count = len(db.list_jobs())
-    watchdog_ok = (initial_jobs_count == final_jobs_count)
+    watchdog_ok = initial_jobs_count == final_jobs_count
     print(f"Watchdog filter verification: {watchdog_ok}")
     results.append(("Watchdog Exclusions", "ignored" if watchdog_ok else "queued", "ignored", None))
 
     # Cleanup temp dir
-    try: temp_dir.rmdir()
-    except Exception: pass
+    try:
+        temp_dir.rmdir()
+    except Exception:
+        pass
 
     # Write report
     with open(log_file, "w", encoding="utf-8") as f:
         f.write("=== Real-World Media Matrix Ingestion Log ===\n\n")
-        f.write(f"| Test Case | Ingest Status | Expected | Notes/Error |\n")
-        f.write(f"| :--- | :--- | :--- | :--- |\n")
+        f.write("| Test Case | Ingest Status | Expected | Notes/Error |\n")
+        f.write("| :--- | :--- | :--- | :--- |\n")
         for name, status, expected, err in results:
             err_str = f"Error: {err}" if err else "OK"
             f.write(f"| {name} | {status} | {expected} | {err_str} |\n")
 
     print(f"Evidence log written to: {log_file}")
+
 
 if __name__ == "__main__":
     main()

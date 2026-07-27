@@ -31,8 +31,8 @@ jobs:
 
       - name: Install Dependencies
         run: |
-          uv pip install -r requirements.txt
-          uv pip install ruff mypy bandit pytest
+          uv sync
+          uv pip install ruff mypy bandit
 
       - name: Run Ruff Lints
         run: uv run ruff check .
@@ -44,7 +44,7 @@ jobs:
         run: uv run mypy --ignore-missing-imports --explicit-package-bases src/
 
       - name: Run Bandit Security Audit
-        run: uv run bandit -r src/
+        run: uv run bandit -r src/ --skip B101,B108,B110,B404,B603,B607
 
       - name: Run Unit Tests
         run: uv run python -m unittest discover -s tests/

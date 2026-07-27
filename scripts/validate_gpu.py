@@ -1,12 +1,13 @@
 import sys
-from pathlib import Path
 import threading
+from pathlib import Path
 
 # Add project root to path
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(PROJECT_ROOT))
 
-from src.processors.converter import ConversionJob, FFmpegBuilder, run_conversion, detect_gpu_support
+from src.processors.converter import ConversionJob, FFmpegBuilder, detect_gpu_support, run_conversion
+
 
 def main():
     print("GPU Validation Test starting...")
@@ -26,10 +27,10 @@ def main():
         input_path=input_path,
         output_path=output_path,
         video_codec="prores",
-        profile="3", # ProRes HQ
+        profile="3",  # ProRes HQ
         audio_codec="pcm_s16le",
         duration=5.0,
-        hwaccel=hwaccel
+        hwaccel=hwaccel,
     )
 
     # Compile the command
@@ -39,7 +40,7 @@ def main():
 
     # Step 3: Run the conversion
     cancel_event = threading.Event()
-    
+
     def on_progress(percent, eta, speed):
         print(f"Progress: {percent:.1f}% | ETA: {eta:.1f}s | Speed: {speed:.1f}x")
 
@@ -65,6 +66,7 @@ def main():
             f.write(f"CPU Fallback command:\n{' '.join(cpu_cmd)}\n")
 
     print(f"Evidence log written to: {log_file}")
+
 
 if __name__ == "__main__":
     main()

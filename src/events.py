@@ -7,6 +7,7 @@ class EventBus:
     """
     Thread-safe event dispatcher that decouples module-to-module communication.
     """
+
     def __init__(self) -> None:
         self._listeners: dict[str, list[Callable[[Any], None]]] = {}
         self._lock = threading.Lock()
@@ -39,23 +40,27 @@ class EventBus:
         with self._lock:
             if event_type in self._listeners:
                 callbacks = list(self._listeners[event_type])
-        
+
         for callback in callbacks:
             try:
                 callback(data)
             except Exception as e:
                 # Avoid circular logging imports in event publishing; prints to stderr
                 import sys
+
                 print(f"Error executing callback for event '{event_type}': {e}", file=sys.stderr)
+
 
 # Global singleton
 _bus = EventBus()
+
 
 def get_event_bus() -> EventBus:
     """
     Access the application-wide global EventBus.
     """
     return _bus
+
 
 # Event Types Constants
 class Events:

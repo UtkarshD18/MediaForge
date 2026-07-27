@@ -1,11 +1,12 @@
+import subprocess
 import sys
 import time
 from pathlib import Path
-import subprocess
 
 # Add project root to path
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(PROJECT_ROOT))
+
 
 def get_rss_memory_mb() -> float:
     try:
@@ -17,6 +18,7 @@ def get_rss_memory_mb() -> float:
         pass
     return 0.0
 
+
 def main():
     print("Performance Profiling starting...")
     evidence_dir = PROJECT_ROOT / "evidence" / "benchmarks"
@@ -26,19 +28,19 @@ def main():
     # 1. Startup Latency
     print("Measuring engine startup latency...")
     t0 = time.perf_counter()
-    
-    from src.db import DatabaseManager
+
     from src.config import ConfigManager
+    from src.db import DatabaseManager
     from src.executor import PipelineExecutor
-    
+
     config_mgr = ConfigManager(PROJECT_ROOT)
     db_path = PROJECT_ROOT / "mediaforge_benchmark.db"
     if db_path.exists():
         db_path.unlink()
-        
+
     db = DatabaseManager(db_path)
-    executor = PipelineExecutor(db, config_mgr)
-    
+    PipelineExecutor(db, config_mgr)
+
     startup_time = time.perf_counter() - t0
     print(f"Startup latency: {startup_time * 1000:.2f} ms")
 
@@ -59,7 +61,7 @@ def main():
     for i in range(500):
         db.execute_read("SELECT value FROM settings WHERE key = ?", (f"test_key_{i}",))
     db_read_latency_ms = ((time.perf_counter() - t_r0) / 500) * 1000
-    
+
     print(f"DB Write latency: {db_write_latency_ms:.3f} ms/query")
     print(f"DB Read latency: {db_read_latency_ms:.3f} ms/query")
 
@@ -67,19 +69,35 @@ def main():
     for suffix in ["", "-wal", "-shm"]:
         p = db_path.parent / (db_path.name + suffix)
         if p.exists():
-            try: p.unlink()
-            except Exception: pass
+            try:
+                p.unlink()
+            except Exception:
+                pass
 
     # 4. Transcoding Peak Memory (using original test file)
     input_file = PROJECT_ROOT / "test_input.mp4"
     if not input_file.exists():
-        subprocess.run([
-            "ffmpeg", "-y", "-f", "lavfi", "-i", "testsrc=duration=5:size=320x240:rate=30",
-            "-c:v", "libx264", "-t", "5", str(input_file)
-        ], capture_output=True, check=True)
+        subprocess.run(
+            [
+                "ffmpeg",
+                "-y",
+                "-f",
+                "lavfi",
+                "-i",
+                "testsrc=duration=5:size=320x240:rate=30",
+                "-c:v",
+                "libx264",
+                "-t",
+                "5",
+                str(input_file),
+            ],
+            capture_output=True,
+            check=True,
+        )
 
     # Trigger transcode and monitor RAM in a separate thread
     import threading
+
     peak_ram = [idle_ram]
     monitor_active = True
 
@@ -96,8 +114,10 @@ def main():
     for suffix in ["", "-wal", "-shm"]:
         p = transcode_db_path.parent / (transcode_db_path.name + suffix)
         if p.exists():
-            try: p.unlink()
-            except Exception: pass
+            try:
+                p.unlink()
+            except Exception:
+                pass
 
     db_t = DatabaseManager(transcode_db_path)
     executor_t = PipelineExecutor(db_t, config_mgr)
@@ -108,10 +128,11 @@ def main():
     print("Running benchmark transcode...")
     temp_input = PROJECT_ROOT / "temp_bench.mp4"
     import shutil
+
     shutil.copy2(input_file, temp_input)
-    
+
     job_id = db_t.add_job(str(temp_input), "", "youtube")
-    
+
     t_trans0 = time.perf_counter()
     executor_t.run_pipeline(job_id)
     transcode_time = time.perf_counter() - t_trans0
@@ -128,18 +149,20 @@ def main():
     for suffix in ["", "-wal", "-shm"]:
         p = transcode_db_path.parent / (transcode_db_path.name + suffix)
         if p.exists():
-            try: p.unlink()
-            except Exception: pass
-            
+            try:
+                p.unlink()
+            except Exception:
+                pass
+
     # Remove temp files and output mov
     if temp_input.exists():
         temp_input.unlink()
-        
+
     clips_dir = config_mgr.get_resolved_path("resolve_clips_folder")
     out_mov = clips_dir / "temp_bench.mov"
     if out_mov.exists():
         out_mov.unlink()
-        
+
     orig_dir = config_mgr.get_resolved_path("originals_folder")
     orig_mp4 = orig_dir / "temp_bench.mp4"
     if orig_mp4.exists():
@@ -157,6 +180,7 @@ def main():
         f.write(f"Test Video Transcode Duration: {transcode_time:.2f} s\n")
 
     print(f"Evidence log written to: {log_file}")
+
 
 if __name__ == "__main__":
     main()

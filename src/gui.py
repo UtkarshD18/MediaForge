@@ -1,10 +1,10 @@
+import json
 import os
 import subprocess
 import sys
 import time
-import json
 from pathlib import Path
-from typing import Callable, Optional, Any
+from typing import Callable
 
 from PySide6.QtCore import Qt, QThread, QTimer, Signal
 from PySide6.QtGui import QAction, QColor
@@ -42,6 +42,7 @@ class IpcQueryThread(QThread):
     Background worker thread that communicates with the daemon over UDS.
     Prevents UI stuttering or freezes.
     """
+
     response_received = Signal(dict)
 
     def __init__(self, client: IpcClient, command: dict) -> None:
@@ -56,10 +57,12 @@ class IpcQueryThread(QThread):
         except Exception as e:
             self.response_received.emit({"success": False, "error": str(e)})
 
+
 class ResourceMonitorThread(QThread):
     """
     Background thread querying CPU delta and NVIDIA GPU utilization levels.
     """
+
     stats_updated = Signal(float, float)  # CPU%, GPU%
 
     def __init__(self) -> None:
@@ -89,7 +92,7 @@ class ResourceMonitorThread(QThread):
 
             cpu_val = 0.0
             gpu_val = 0.0
-            
+
             # 1. Calculate CPU
             new_cpu = self._read_cpu_ticks()
             if new_cpu and self._last_cpu_stats:
@@ -107,41 +110,44 @@ class ResourceMonitorThread(QThread):
                     ["nvidia-smi", "--query-gpu=utilization.gpu", "--format=csv,noheader,nounits"],
                     capture_output=True,
                     text=True,
-                    timeout=1.0
+                    timeout=1.0,
                 )
                 if out.returncode == 0:
                     gpu_val = float(out.stdout.strip())
             except Exception:
                 gpu_val = 0.0
-                
+
             self.stats_updated.emit(cpu_val, gpu_val)
             time.sleep(5.0)
+
 
 class MediaForgeWindow(QMainWindow):
     """
     Main PySide6 dashboard window modeled in breeze-dark aesthetics.
     """
+
     def __init__(self, socket_path: Path, project_root: Path) -> None:
         super().__init__()
         self.socket_path = Path(socket_path).resolve()
         self.project_root = Path(project_root).resolve()
         self.client = IpcClient(self.socket_path)
         self.logger = get_logger()
-        
+
         self.setWindowTitle("MediaForge Ingestion Engine")
         self.resize(800, 600)
-        
+
         self.setup_stylesheet()
         self.setup_ui()
         self.setup_system_tray()
-        
+
         # Start loops
         self.telemetry_timer = QTimer(self)
         self.telemetry_timer.timeout.connect(self.poll_daemon_status)
         self.telemetry_timer.start(1000)
-        
+
         # Load local config for features check
         from src.config import ConfigManager
+
         try:
             self.gui_config = ConfigManager(self.project_root).config
         except Exception:
@@ -149,7 +155,7 @@ class MediaForgeWindow(QMainWindow):
 
         self.resource_monitor = ResourceMonitorThread()
         self.resource_monitor.stats_updated.connect(self.update_resource_widgets)
-        
+
         gpu_monitor_enabled = True
         if self.gui_config and not self.gui_config.features.get("gpu_monitor", True):
             gpu_monitor_enabled = False
@@ -282,112 +288,112 @@ class MediaForgeWindow(QMainWindow):
     def setup_ui(self) -> None:
         central_widget = QWidget(self)
         self.setCentralWidget(central_widget)
-        
+
         main_layout = QVBoxLayout(central_widget)
         main_layout.setContentsMargins(15, 15, 15, 15)
-        
+
         # 1. Header (Title, Daemon Status, GPU/CPU displays)
         header_layout = QHBoxLayout()
-        
+
         title_label = QLabel("MediaForge", self)
         title_label.setObjectName("header_title")
         header_layout.addWidget(title_label)
-        
+
         # Status indicator
         status_card = QFrame(self)
         status_card.setObjectName("card")
         status_card_layout = QHBoxLayout(status_card)
         status_card_layout.setContentsMargins(8, 4, 8, 4)
-        
+
         self.status_dot = QLabel("●", self)
         self.status_dot.setStyleSheet("color: #e74c3c; font-size: 16px;")  # Default Red (Offline)
         status_card_layout.addWidget(self.status_dot)
-        
+
         self.status_text = QLabel("Daemon Offline", self)
         self.status_text.setStyleSheet("font-weight: bold; color: #a1a9b1;")
         status_card_layout.addWidget(self.status_text)
         header_layout.addWidget(status_card)
-        
+
         header_layout.addStretch()
-        
+
         # CPU/GPU utilization widgets
         res_card = QFrame(self)
         res_card.setObjectName("card")
         res_layout = QHBoxLayout(res_card)
         res_layout.setContentsMargins(10, 5, 10, 5)
-        
+
         self.cpu_lbl = QLabel("CPU: 0%", self)
         self.cpu_lbl.setStyleSheet("color: #3daee9; font-weight: bold;")
         res_layout.addWidget(self.cpu_lbl)
-        
+
         divider = QLabel("|", self)
         divider.setStyleSheet("color: #4d545c;")
         res_layout.addWidget(divider)
-        
+
         self.gpu_lbl = QLabel("GPU: 0%", self)
         self.gpu_lbl.setStyleSheet("color: #2ecc71; font-weight: bold;")
         res_layout.addWidget(self.gpu_lbl)
         header_layout.addWidget(res_card)
-        
+
         main_layout.addLayout(header_layout)
         main_layout.addSpacing(10)
 
         # 2. Main Tab View
         self.tabs = QTabWidget(self)
-        
+
         self.setup_dashboard_tab()
         self.setup_history_tab()
         self.setup_settings_tab()
-        
+
         main_layout.addWidget(self.tabs)
 
     def setup_dashboard_tab(self) -> None:
         tab = QWidget()
         layout = QVBoxLayout(tab)
         layout.setContentsMargins(15, 15, 15, 15)
-        
+
         # Active Job Group
         active_card = QFrame(tab)
         active_card.setObjectName("card")
         active_layout = QVBoxLayout(active_card)
         active_layout.setContentsMargins(15, 15, 15, 15)
-        
+
         active_header = QHBoxLayout()
         active_header.addWidget(QLabel("<b>Active Conversion Task</b>", tab))
         active_header.addStretch()
-        
+
         # Daemon Control Actions
         self.pause_btn = QPushButton("Pause Ingestion", tab)
         self.pause_btn.clicked.connect(self.on_pause_clicked)
         active_header.addWidget(self.pause_btn)
-        
+
         self.cancel_btn = QPushButton("Cancel Job", tab)
         self.cancel_btn.setObjectName("danger_btn")
         self.cancel_btn.clicked.connect(self.on_cancel_clicked)
         active_header.addWidget(self.cancel_btn)
         active_layout.addLayout(active_header)
-        
+
         self.active_file_label = QLabel("Idle - Drag media files into the watched directory to begin.", tab)
         self.active_file_label.setWordWrap(True)
         active_layout.addWidget(self.active_file_label)
-        
+
         self.progress_bar = QProgressBar(tab)
         self.progress_bar.setValue(0)
         active_layout.addWidget(self.progress_bar)
-        
+
         self.active_meta_label = QLabel("", tab)
         self.active_meta_label.setStyleSheet("color: #a1a9b1; font-size: 11px;")
         active_layout.addWidget(self.active_meta_label)
-        
+
         layout.addWidget(active_card)
         layout.addSpacing(10)
-        
+
         # Queue list header
         queue_header = QHBoxLayout()
         queue_header.addWidget(QLabel("<b>Ingestion Processing Queue</b>", tab))
         queue_header.addStretch()
         layout.addLayout(queue_header)
-        
+
         # Queue Table
         self.queue_table = QTableWidget(0, 3, tab)
         self.queue_table.setHorizontalHeaderLabels(["Filename", "Profile", "Status"])
@@ -396,17 +402,17 @@ class MediaForgeWindow(QMainWindow):
         self.queue_table.horizontalHeader().setSectionResizeMode(2, QHeaderView.ResizeMode.ResizeToContents)
         self.queue_table.verticalHeader().setVisible(False)
         layout.addWidget(self.queue_table)
-        
+
         self.tabs.addTab(tab, "Dashboard")
 
     def setup_history_tab(self) -> None:
         tab = QWidget()
         layout = QVBoxLayout(tab)
         layout.setContentsMargins(15, 15, 15, 15)
-        
+
         # Telemetry Stats Card
         stats_layout = QHBoxLayout()
-        
+
         stats_titles = ["Files Converted", "Total Ingested", "Total Time Saved", "Average Speed"]
         self.stats_labels = []
         for title in stats_titles:
@@ -414,24 +420,24 @@ class MediaForgeWindow(QMainWindow):
             card.setObjectName("card")
             card_layout = QVBoxLayout(card)
             card_layout.setContentsMargins(10, 10, 10, 10)
-            
+
             lbl_title = QLabel(title, tab)
             lbl_title.setStyleSheet("color: #a1a9b1; font-size: 11px;")
             lbl_title.setAlignment(Qt.AlignmentFlag.AlignCenter)
             card_layout.addWidget(lbl_title)
-            
+
             lbl_val = QLabel("0", tab)
             lbl_val.setStyleSheet("font-size: 18px; font-weight: bold; color: #3daee9;")
             lbl_val.setAlignment(Qt.AlignmentFlag.AlignCenter)
             card_layout.addWidget(lbl_val)
             self.stats_labels.append(lbl_val)
             stats_layout.addWidget(card)
-            
+
         layout.addLayout(stats_layout)
         layout.addSpacing(10)
-        
+
         layout.addWidget(QLabel("<b>Ingestion History</b>", tab))
-        
+
         # History Table
         self.history_table = QTableWidget(0, 5, tab)
         self.history_table.setHorizontalHeaderLabels(["Original File", "Status", "Size Saved", "Speed", "Ingested At"])
@@ -442,17 +448,17 @@ class MediaForgeWindow(QMainWindow):
         self.history_table.horizontalHeader().setSectionResizeMode(4, QHeaderView.ResizeMode.ResizeToContents)
         self.history_table.verticalHeader().setVisible(False)
         layout.addWidget(self.history_table)
-        
+
         self.tabs.addTab(tab, "History")
 
     def setup_settings_tab(self) -> None:
         tab = QWidget()
         layout = QVBoxLayout(tab)
         layout.setContentsMargins(15, 15, 15, 15)
-        
+
         # Configuration Fields
         form_layout = QVBoxLayout()
-        
+
         # Incoming Directory
         form_layout.addWidget(QLabel("Incoming Video Directory (Watched):", tab))
         incoming_row = QHBoxLayout()
@@ -462,7 +468,7 @@ class MediaForgeWindow(QMainWindow):
         incoming_browse.clicked.connect(lambda: self.browse_directory(self.incoming_edit))
         incoming_row.addWidget(incoming_browse)
         form_layout.addLayout(incoming_row)
-        
+
         # Clips Directory
         form_layout.addWidget(QLabel("Target Clips Directory (Resolve Ingest):", tab))
         clips_row = QHBoxLayout()
@@ -472,55 +478,57 @@ class MediaForgeWindow(QMainWindow):
         clips_browse.clicked.connect(lambda: self.browse_directory(self.clips_edit))
         clips_row.addWidget(clips_browse)
         form_layout.addLayout(clips_row)
-        
+
         # Active Profile Selector
         form_layout.addWidget(QLabel("Active Conversion Target Profile:", tab))
         self.profile_combo = QComboBox(tab)
         form_layout.addWidget(self.profile_combo)
-        
+
         # Notification Toggle
         self.notify_check = QCheckBox("Enable Desktop Notifications (KDE Alert)", tab)
         form_layout.addWidget(self.notify_check)
-        
+
         # Overwrite Toggle
         self.overwrite_check = QCheckBox("Overwrite Destination Files", tab)
         form_layout.addWidget(self.overwrite_check)
-        
+
         layout.addLayout(form_layout)
         layout.addSpacing(10)
-        
+
         # Save Buttons
         btn_layout = QHBoxLayout()
         save_btn = QPushButton("Save Settings", tab)
         save_btn.clicked.connect(self.save_settings)
         btn_layout.addWidget(save_btn)
-        
+
         # Quick access folder triggers
         open_in_btn = QPushButton("Open Incoming Folder", tab)
         open_in_btn.clicked.connect(lambda: self.open_folder(self.incoming_edit.text()))
         btn_layout.addWidget(open_in_btn)
-        
+
         open_out_btn = QPushButton("Open Clips Folder", tab)
         open_out_btn.clicked.connect(lambda: self.open_folder(self.clips_edit.text()))
         btn_layout.addWidget(open_out_btn)
-        
+
         btn_layout.addStretch()
         layout.addLayout(btn_layout)
         layout.addSpacing(15)
-        
+
         # Live log reader console
         layout.addWidget(QLabel("<b>Engine Live Logs</b>", tab))
         self.logs_txt = QTextEdit(tab)
         self.logs_txt.setReadOnly(True)
-        self.logs_txt.setStyleSheet("background-color: #1e1e24; color: #a1a9b1; font-family: monospace; font-size: 11px;")
+        self.logs_txt.setStyleSheet(
+            "background-color: #1e1e24; color: #a1a9b1; font-family: monospace; font-size: 11px;"
+        )
         layout.addWidget(self.logs_txt)
-        
+
         # Start reading logs
         self.logs_timer = QTimer(self)
         self.logs_timer.timeout.connect(self.tail_logs)
         self.logs_timer.start(2000)
         self.log_file_pointer = 0
-        
+
         self.tabs.addTab(tab, "Settings")
 
     def setup_system_tray(self) -> None:
@@ -532,34 +540,34 @@ class MediaForgeWindow(QMainWindow):
         icon = self.style().standardIcon(QStyle.StandardPixmap.SP_ComputerIcon)
         self.tray_icon.setIcon(icon)
         self.tray_icon.setToolTip("MediaForge Ingestion Engine")
-        
+
         # Context Menu
         menu = QMenu(self)
-        
+
         show_action = QAction("Open Dashboard", self)
         show_action.triggered.connect(self.showNormal)
         menu.addAction(show_action)
-        
+
         self.tray_pause_action = QAction("Pause Queue", self)
         self.tray_pause_action.triggered.connect(self.toggle_queue_pause)
         menu.addAction(self.tray_pause_action)
-        
+
         menu.addSeparator()
-        
+
         open_in = QAction("Open Incoming Folder", self)
         open_in.triggered.connect(lambda: self.open_folder(self.incoming_edit.text()))
         menu.addAction(open_in)
-        
+
         open_clips = QAction("Open Clips Folder", self)
         open_clips.triggered.connect(lambda: self.open_folder(self.clips_edit.text()))
         menu.addAction(open_clips)
-        
+
         menu.addSeparator()
-        
+
         exit_action = QAction("Exit", self)
         exit_action.triggered.connect(QApplication.quit)
         menu.addAction(exit_action)
-        
+
         self.tray_icon.setContextMenu(menu)
         self.tray_icon.activated.connect(self.on_tray_icon_activated)
         self.tray_icon.show()
@@ -603,9 +611,10 @@ class MediaForgeWindow(QMainWindow):
 
     def on_cancel_clicked(self) -> None:
         reply = QMessageBox.question(
-            self, "Cancel Ingestion",
+            self,
+            "Cancel Ingestion",
             "Are you sure you want to stop and delete the current conversion?",
-            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
         )
         if reply == QMessageBox.StandardButton.Yes:
             self.run_uds_command({"command": "cancel"})
@@ -619,14 +628,15 @@ class MediaForgeWindow(QMainWindow):
             "resolve_clips_folder": self.clips_edit.text(),
             "active_profile": self.profile_combo.currentText(),
             "notification_toggle": self.notify_check.isChecked(),
-            "overwrite_existing": self.overwrite_check.isChecked()
+            "overwrite_existing": self.overwrite_check.isChecked(),
         }
-        
+
         # Save locally in files if daemon is offline, or request daemon update
         if self.status_text.text() == "Daemon Offline":
             # Direct save using config module
             try:
                 from src.config import ConfigManager
+
                 cm = ConfigManager(self.project_root)
                 cm.save_settings(updates)
                 QMessageBox.information(self, "Saved", "Settings saved locally. Daemon is offline.")
@@ -634,18 +644,22 @@ class MediaForgeWindow(QMainWindow):
                 QMessageBox.critical(self, "Error", f"Failed to save locally: {e}")
         else:
             # Save via UDS
-            self.run_uds_command({
-                "command": "reload_config"  # Reload triggers save updates
-            }, lambda r: self.save_settings_via_uds(updates))
+            self.run_uds_command(
+                {
+                    "command": "reload_config"  # Reload triggers save updates
+                },
+                lambda r: self.save_settings_via_uds(updates),
+            )
 
     def save_settings_via_uds(self, updates: dict) -> None:
         # We need an internal save script call, or since config reload parses yaml,
         # we write the YAML file first and then tell the daemon to reload.
         try:
             from src.config import ConfigManager
+
             cm = ConfigManager(self.project_root)
             cm.save_settings(updates)
-            
+
             # Send reload to daemon
             self.run_uds_command({"command": "reload_config"}, self.on_settings_reloaded)
         except Exception as e:
@@ -676,7 +690,9 @@ class MediaForgeWindow(QMainWindow):
             self.status_dot.setStyleSheet("color: #e74c3c; font-size: 16px;")
             self.status_text.setText("Daemon Offline")
             self.status_text.setStyleSheet("font-weight: bold; color: #a1a9b1;")
-            self.active_file_label.setText("Idle - Daemon is currently offline. Start the service with 'mediaforge watch'.")
+            self.active_file_label.setText(
+                "Idle - Daemon is currently offline. Start the service with 'mediaforge watch'."
+            )
             self.progress_bar.setValue(0)
             self.pause_btn.setEnabled(False)
             self.cancel_btn.setEnabled(False)
@@ -708,10 +724,10 @@ class MediaForgeWindow(QMainWindow):
             status = active["status"].replace("_", " ").title()
             progress = active.get("progress", 0.0)
             eta = active.get("eta_seconds", 0.0)
-            
+
             self.active_file_label.setText(f"<b>Ingesting:</b> {filename} ({status})")
             self.progress_bar.setValue(int(progress))
-            
+
             eta_str = f"{int(eta // 60):02d}:{int(eta % 60):02d} remaining" if eta > 0 else "estimating..."
             self.active_meta_label.setText(f"Progress: {progress:.1f}% | {eta_str}")
             self.cancel_btn.setEnabled(True)
@@ -724,7 +740,7 @@ class MediaForgeWindow(QMainWindow):
         # 2. Update Queue list
         jobs_list = resp.get("jobs_list", [])
         queued_jobs = [j for j in jobs_list if j["status"] == "queued"]
-        
+
         self.queue_table.setRowCount(len(queued_jobs))
         for row, job in enumerate(queued_jobs):
             name = Path(job["filepath"]).name
@@ -737,20 +753,20 @@ class MediaForgeWindow(QMainWindow):
         if self.incoming_edit.text() == "":
             self.incoming_edit.setText(config.get("incoming_folder", ""))
             self.clips_edit.setText(config.get("resolve_clips_folder", ""))
-            
+
             # Fetch profiles dynamically from the project dir
             self.profile_combo.clear()
             profiles_dir = self.project_root / "config" / "profiles"
             if profiles_dir.exists():
                 for pf in profiles_dir.glob("*.yaml"):
                     self.profile_combo.addItem(pf.stem)
-            
+
             self.profile_combo.setCurrentText(config.get("active_profile", "youtube"))
 
         # 4. Update Analytics Stats labels
         analytics = resp.get("analytics", {})
         self.stats_labels[0].setText(str(analytics.get("total_count", 0)))
-        
+
         # Bytes conversion
         bytes_val = analytics.get("total_size_bytes", 0)
         size_str = "0 MB"
@@ -759,7 +775,7 @@ class MediaForgeWindow(QMainWindow):
         elif bytes_val > 1024**2:
             size_str = f"{bytes_val / 1024**2:.1f} MB"
         self.stats_labels[1].setText(size_str)
-        
+
         # Time Saved
         time_sec = analytics.get("time_saved_seconds", 0.0)
         saved_str = "0s"
@@ -770,7 +786,7 @@ class MediaForgeWindow(QMainWindow):
         else:
             saved_str = f"{int(time_sec)}s"
         self.stats_labels[2].setText(saved_str)
-        
+
         # Average Speed
         self.stats_labels[3].setText(f"{analytics.get('avg_speed', 1.0):.2f}x")
 
@@ -784,7 +800,7 @@ class MediaForgeWindow(QMainWindow):
         self.history_table.setRowCount(len(history))
         for row, hist in enumerate(history):
             self.history_table.setItem(row, 0, QTableWidgetItem(hist["original_name"]))
-            
+
             # Colored Status
             status_item = QTableWidgetItem(hist["status"].upper())
             if hist["status"] == "completed":
@@ -792,14 +808,14 @@ class MediaForgeWindow(QMainWindow):
             else:
                 status_item.setForeground(QColor("#e74c3c"))
             self.history_table.setItem(row, 1, status_item)
-            
+
             # File size saved representation
             bytes_val = hist["original_size"]
             size_str = f"{bytes_val / 1024**2:.1f} MB" if bytes_val < 1024**3 else f"{bytes_val / 1024**3:.2f} GB"
             self.history_table.setItem(row, 2, QTableWidgetItem(size_str))
-            
+
             self.history_table.setItem(row, 3, QTableWidgetItem(f"{hist['avg_speed']:.2f}x"))
-            
+
             # Timestamp (iso format extraction)
             ts = hist["timestamp"].split(".")[0] if "." in hist["timestamp"] else hist["timestamp"]
             self.history_table.setItem(row, 4, QTableWidgetItem(ts))
@@ -867,7 +883,7 @@ class MediaForgeWindow(QMainWindow):
                 "MediaForge",
                 "Application is still running in the system tray.",
                 QSystemTrayIcon.MessageIcon.Information,
-                2000
+                2000,
             )
             event.ignore()
         else:
@@ -891,13 +907,14 @@ class MediaForgeWindow(QMainWindow):
             self.resource_monitor.active_polling = True
         super().showEvent(event)
 
+
 def start_gui(socket_path: Path, project_root: Path) -> None:
     app = QApplication(sys.argv)
-    
+
     # Enable system tray fallback integration
     if not QSystemTrayIcon.isSystemTrayAvailable():
         print("System tray is not available on this desktop environment. Running standard window mode.")
-        
+
     window = MediaForgeWindow(socket_path, project_root)
     window.show()
     sys.exit(app.exec())

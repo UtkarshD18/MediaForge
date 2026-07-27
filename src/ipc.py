@@ -1,7 +1,7 @@
 import json
 import socket
-import time
 import threading
+import time
 import traceback
 from pathlib import Path
 from typing import Any
@@ -16,14 +16,8 @@ class IpcServer(threading.Thread):
     Local UNIX Domain Socket server running in the daemon.
     Receives JSON instructions and responds with state telemetry.
     """
-    def __init__(
-        self,
-        socket_path: Path,
-        db: DatabaseManager,
-        scheduler: Any,
-        executor: Any,
-        config_mgr: Any
-    ) -> None:
+
+    def __init__(self, socket_path: Path, db: DatabaseManager, scheduler: Any, executor: Any, config_mgr: Any) -> None:
         super().__init__()
         self.socket_path = Path(socket_path).resolve()
         self.db = db
@@ -54,7 +48,7 @@ class IpcServer(threading.Thread):
 
     def run(self) -> None:
         self.logger.info(f"Starting IPC UDS server at {self.socket_path}")
-        
+
         # Clean up stale socket files
         if self.socket_path.exists():
             try:
@@ -98,7 +92,7 @@ class IpcServer(threading.Thread):
 
             req = json.loads(data.decode("utf-8"))
             cmd = req.get("command")
-            
+
             response = self._process_command(cmd, req)
             conn.sendall(json.dumps(response).encode("utf-8"))
         except Exception as e:
@@ -121,17 +115,17 @@ class IpcServer(threading.Thread):
         if cmd == "status":
             active_job_row = self.db.get_active_job()
             active_job = dict(active_job_row) if active_job_row else None
-            
+
             # Fetch jobs list
             jobs_rows = self.db.list_jobs()
             jobs_list = [dict(r) for r in jobs_rows[:15]]  # limit to top 15 for payload size
-            
+
             # Fetch stats
             analytics = self.db.get_analytics()
-            
+
             # Watch status
             status_str = "paused" if self.scheduler.is_paused() else "watching"
-            
+
             return {
                 "success": True,
                 "status": status_str,
@@ -140,9 +134,11 @@ class IpcServer(threading.Thread):
                 "analytics": analytics,
                 "config": {
                     "incoming_folder": self.config_mgr.config.incoming_folder if self.config_mgr.config else "",
-                    "resolve_clips_folder": self.config_mgr.config.resolve_clips_folder if self.config_mgr.config else "",
-                    "active_profile": self.config_mgr.config.active_profile if self.config_mgr.config else "youtube"
-                }
+                    "resolve_clips_folder": self.config_mgr.config.resolve_clips_folder
+                    if self.config_mgr.config
+                    else "",
+                    "active_profile": self.config_mgr.config.active_profile if self.config_mgr.config else "youtube",
+                },
             }
 
         elif cmd == "pause":
@@ -171,6 +167,7 @@ class IpcServer(threading.Thread):
 
         elif cmd == "stop":
             self.logger.info("Daemon termination requested over IPC.")
+
             # Trigger a stop in a short delay so the socket response delivers first
             def shutdown():
                 time.sleep(0.5)
@@ -182,10 +179,12 @@ class IpcServer(threading.Thread):
         else:
             return {"success": False, "error": f"Unknown command: {cmd}"}
 
+
 class IpcClient:
     """
     Local UNIX Domain Socket client used by the GUI dashboard and CLI commands.
     """
+
     def __init__(self, socket_path: Path) -> None:
         self.socket_path = Path(socket_path).resolve()
 
@@ -210,19 +209,21 @@ class IpcClient:
         """
         if not self.socket_path.exists():
             return {"success": False, "error": f"UDS socket not found at {self.socket_path}. Daemon probably offline."}
-            
+
         try:
             s = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
             s.settimeout(timeout)
             s.connect(str(self.socket_path))
-            
+
             s.sendall(json.dumps(cmd_dict).encode("utf-8"))
             data = s.recv(65536)  # Large buffer size for stats/jobs payloads
             s.close()
-            
+
             if not data:
                 return {"success": False, "error": "No response payload received."}
-                
-            return json.loads(data.decode("utf-8"))
+
+            from typing import cast
+
+            return cast(dict[str, Any], json.loads(data.decode("utf-8")))
         except Exception as e:
             return {"success": False, "error": str(e)}

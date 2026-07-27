@@ -16,6 +16,7 @@ class PipelineExecutor:
     """
     Executes a single media ingestion job through the multi-stage processing pipeline.
     """
+
     def __init__(self, db: DatabaseManager, config_mgr: ConfigManager) -> None:
         self.db = db
         self.config_mgr = config_mgr
@@ -45,7 +46,7 @@ class PipelineExecutor:
         if not jobs:
             self.logger.error(f"Job ID {job_id} not found in database.")
             return False
-            
+
         job_row = jobs[0]
         filepath = Path(job_row["filepath"])
         profile_name = job_row["profile_name"]
@@ -54,7 +55,7 @@ class PipelineExecutor:
             # 1. Analyze / Wait for transfer
             self.logger.info(f"Starting pipeline for job {job_id}: {filepath.name}")
             self.db.update_job_status(job_id, "analyzing")
-            
+
             # Wait for file copy to stabilize
             stability = self.config_mgr.config.stability_duration if self.config_mgr.config else 2.0
             if not wait_for_file_copy(filepath, stability_duration=stability):
@@ -65,7 +66,7 @@ class PipelineExecutor:
 
             # Compute SHA256
             sha256 = get_file_sha256(filepath)
-            
+
             # Update hash in jobs table
             self.db.execute_write("UPDATE jobs SET sha256 = ? WHERE id = ?", (sha256, job_id))
 
@@ -75,23 +76,23 @@ class PipelineExecutor:
             codec = meta["codec"]
 
             # Publish event
-            self.bus.publish(Events.JOB_STARTED, {
-                "job_id": job_id,
-                "filepath": str(filepath),
-                "profile_name": profile_name,
-                "metadata": meta
-            })
+            self.bus.publish(
+                Events.JOB_STARTED,
+                {"job_id": job_id, "filepath": str(filepath), "profile_name": profile_name, "metadata": meta},
+            )
 
             # 2. Check Duplicate Detection
             history_match = self.db.execute_read(
                 "SELECT * FROM history WHERE sha256 = ? AND status IN ('completed', 'duplicate') ORDER BY id DESC LIMIT 1",
-                (sha256,)
+                (sha256,),
             )
             if history_match:
                 prev_path = Path(history_match[0]["converted_path"])
                 if prev_path.exists():
-                    self.logger.info(f"Duplicate detected: {filepath.name} matches completed ingestion {prev_path.name}. Skipping conversion.")
-                    
+                    self.logger.info(
+                        f"Duplicate detected: {filepath.name} matches completed ingestion {prev_path.name}. Skipping conversion."
+                    )
+
                     # Still clean up incoming directory
                     self.db.update_job_status(job_id, "moving")
                     originals_dir = self.config_mgr.get_resolved_path("originals_folder")
@@ -111,13 +112,12 @@ class PipelineExecutor:
                         conversion_time=0.0,
                         avg_speed=0.0,
                         status="duplicate",
-                        reason="sha256_match"
+                        reason="sha256_match",
                     )
-                    self.bus.publish(Events.JOB_FINISHED, {
-                        "job_id": job_id,
-                        "original_name": filepath.name,
-                        "converted_path": str(prev_path)
-                    })
+                    self.bus.publish(
+                        Events.JOB_FINISHED,
+                        {"job_id": job_id, "original_name": filepath.name, "converted_path": str(prev_path)},
+                    )
                     return True
 
             # 3. Determine action based on profile
@@ -133,7 +133,7 @@ class PipelineExecutor:
 
             # Check if codec is already edit-ready
             is_edit_ready = codec.lower() in ("prores", "dnxhr", "dnxhd")
-            
+
             # Destination path naming
             target_ext = profile.ext
             dest_filename = f"{filepath.stem}.{target_ext}"
@@ -141,9 +141,11 @@ class PipelineExecutor:
             final_dest_file = clips_dir / dest_filename
 
             if is_edit_ready or profile.video_codec == "copy":
-                self.logger.info(f"Skipping compression re-encode for {filepath.name} (Codec: {codec}). Remuxing/copying to clips folder.")
+                self.logger.info(
+                    f"Skipping compression re-encode for {filepath.name} (Codec: {codec}). Remuxing/copying to clips folder."
+                )
                 self.db.update_job_status(job_id, "converting")
-                
+
                 # Check if we can do a simple direct copy (if extensions match) or need ffmpeg remux
                 if filepath.suffix.lower() == f".{target_ext}".lower():
                     # Direct filesystem copy
@@ -157,12 +159,10 @@ class PipelineExecutor:
                         video_codec="copy",
                         audio_codec="copy",
                         duration=duration,
-                        hwaccel=None
+                        hwaccel=None,
                     )
                     run_conversion(
-                        remux_job,
-                        lambda p, e, s: self.db.update_job_progress(job_id, p, e),
-                        self.cancel_event
+                        remux_job, lambda p, e, s: self.db.update_job_progress(job_id, p, e), self.cancel_event
                     )
             else:
                 # Run full conversion with hardware acceleration detection
@@ -176,28 +176,33 @@ class PipelineExecutor:
                     profile=profile.profile,
                     audio_codec=profile.audio_codec,
                     duration=duration,
-                    hwaccel=gpu
+                    hwaccel=gpu,
                 )
 
                 try:
                     # Define update progress callback
                     def on_progress(percent: float, eta: float, speed: float) -> None:
                         self.db.update_job_progress(job_id, percent, eta)
-                        self.bus.publish(Events.JOB_PROGRESS, {
-                            "job_id": job_id,
-                            "filename": filepath.name,
-                            "progress": percent,
-                            "eta": eta,
-                            "speed": speed
-                        })
+                        self.bus.publish(
+                            Events.JOB_PROGRESS,
+                            {
+                                "job_id": job_id,
+                                "filename": filepath.name,
+                                "progress": percent,
+                                "eta": eta,
+                                "speed": speed,
+                            },
+                        )
 
                     run_conversion(conv_job, on_progress, self.cancel_event)
                 except Exception as e:
                     if gpu:
-                        self.logger.warning(f"GPU conversion failed for {filepath.name} with error: {e}. Falling back to CPU decoding...")
+                        self.logger.warning(
+                            f"GPU conversion failed for {filepath.name} with error: {e}. Falling back to CPU decoding..."
+                        )
                         if temp_dest_file.exists():
                             temp_dest_file.unlink()
-                        
+
                         conv_job.hwaccel = None
                         run_conversion(conv_job, on_progress, self.cancel_event)
                     else:
@@ -205,13 +210,13 @@ class PipelineExecutor:
 
             # 5. Move output & original
             self.db.update_job_status(job_id, "moving")
-            
+
             # Resolve collision for final destination
             final_dest_file = self._resolve_collision(final_dest_file)
-            
+
             # Move temp converted to final
             shutil.move(temp_dest_file, final_dest_file)
-            
+
             # Preserve modification times
             preserve_timestamps(filepath, final_dest_file)
 
@@ -221,13 +226,13 @@ class PipelineExecutor:
             # 4. Post-processing (using final file name)
             if self.cancel_event.is_set():
                 raise InterruptedError("Cancelled prior to post-processing.")
-            
+
             self.db.update_job_status(job_id, "post_processing")
             self._run_post_processors(final_dest_file, duration)
 
             # 6. Complete Ingestion Record
             self.db.update_job_status(job_id, "completed")
-            
+
             duration_time = time.time() - self._current_process_start
             avg_speed_val = (duration / duration_time) if duration_time > 0 else 1.0
 
@@ -242,35 +247,32 @@ class PipelineExecutor:
                 duration=duration,
                 conversion_time=duration_time,
                 avg_speed=round(avg_speed_val, 2),
-                status="completed"
+                status="completed",
             )
 
-            self.bus.publish(Events.JOB_FINISHED, {
-                "job_id": job_id,
-                "original_name": filepath.name,
-                "converted_path": str(final_dest_file)
-            })
+            self.bus.publish(
+                Events.JOB_FINISHED,
+                {"job_id": job_id, "original_name": filepath.name, "converted_path": str(final_dest_file)},
+            )
 
             return True
 
         except Exception as e:
             self.logger.error(f"Pipeline execution failed for job {job_id}: {e}")
             self.db.update_job_status(job_id, "failed", str(e))
-            
+
             # Attempt to clean up temp file if present
             try:
-                temp_ext = profile.ext if ('profile' in locals() and profile is not None) else "mov"
-                temp_path = Path(self.config_mgr.get_resolved_path("resolve_clips_folder")) / f"{filepath.stem}._tmp.{temp_ext}"
+                temp_ext = profile.ext if ("profile" in locals() and profile is not None) else "mov"
+                temp_path = (
+                    Path(self.config_mgr.get_resolved_path("resolve_clips_folder")) / f"{filepath.stem}._tmp.{temp_ext}"
+                )
                 if temp_path.exists():
                     temp_path.unlink()
             except Exception as cleanup_err:
                 self.logger.error(f"Failed to clean up temp converted file: {cleanup_err}")
 
-            self.bus.publish(Events.JOB_FAILED, {
-                "job_id": job_id,
-                "original_name": filepath.name,
-                "error": str(e)
-            })
+            self.bus.publish(Events.JOB_FAILED, {"job_id": job_id, "original_name": filepath.name, "error": str(e)})
             return False
 
         finally:
@@ -287,6 +289,7 @@ class PipelineExecutor:
 
         try:
             from src.processors.thumbnail import generate_thumbnail
+
             cache_dir = Path(self.config_mgr.get_resolved_path("resolve_clips_folder")).parent / "cache"
             if cache_dir.exists():
                 thumb_path = cache_dir / f"{converted_file.stem}.jpg"
@@ -301,12 +304,12 @@ class PipelineExecutor:
         """
         if not target_path.exists():
             return target_path
-            
+
         parent = target_path.parent
         stem = target_path.stem
         suffix = target_path.suffix
         counter = 1
-        
+
         while True:
             new_path = parent / f"{stem}_{counter}{suffix}"
             if not new_path.exists():

@@ -12,11 +12,15 @@ def generate_thumbnail(video_path: Path, output_jpg_path: Path, seek_seconds: fl
     cmd = [
         "ffmpeg",
         "-y",
-        "-ss", str(seek_seconds),
-        "-i", str(video_path),
-        "-vframes", "1",
-        "-q:v", "4",  # High quality jpeg scale
-        str(output_jpg_path)
+        "-ss",
+        str(seek_seconds),
+        "-i",
+        str(video_path),
+        "-vframes",
+        "1",
+        "-q:v",
+        "4",  # High quality jpeg scale
+        str(output_jpg_path),
     ]
     try:
         subprocess.run(cmd, capture_output=True, check=True, timeout=5.0)

@@ -1,15 +1,16 @@
 import sys
+import threading
 import time
 from pathlib import Path
-import threading
 
 # Add project root to path
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(PROJECT_ROOT))
 
+from src.config import ConfigManager
 from src.db import DatabaseManager
 from src.executor import PipelineExecutor
-from src.config import ConfigManager
+
 
 def main():
     print("Queue Persistence Validation starting...")
@@ -22,8 +23,10 @@ def main():
     for suffix in ["", "-wal", "-shm"]:
         p = db_path.parent / (db_path.name + suffix)
         if p.exists():
-            try: p.unlink()
-            except Exception: pass
+            try:
+                p.unlink()
+            except Exception:
+                pass
 
     db = DatabaseManager(db_path)
     config_mgr = ConfigManager(PROJECT_ROOT)
@@ -32,13 +35,27 @@ def main():
     # Re-generate input file in incoming folder just in case it got moved
     incoming_dir = config_mgr.get_resolved_path("incoming_folder")
     input_file = incoming_dir / "persistence_test_src.mp4"
-    
+
     # Generate 5-second test video in watched incoming folder
     import subprocess
-    subprocess.run([
-        "ffmpeg", "-y", "-f", "lavfi", "-i", "testsrc=duration=5:size=640x360:rate=30",
-        "-c:v", "libx264", "-t", "5", str(input_file)
-    ], capture_output=True, check=True)
+
+    subprocess.run(
+        [
+            "ffmpeg",
+            "-y",
+            "-f",
+            "lavfi",
+            "-i",
+            "testsrc=duration=5:size=640x360:rate=30",
+            "-c:v",
+            "libx264",
+            "-t",
+            "5",
+            str(input_file),
+        ],
+        capture_output=True,
+        check=True,
+    )
 
     # Step 2: Add job and start pipeline in background thread
     job_id = db.add_job(str(input_file), "", "youtube")
@@ -49,7 +66,7 @@ def main():
 
     # Wait for the job to start converting
     time.sleep(1.5)
-    
+
     # Check status in db
     jobs = db.execute_read("SELECT * FROM jobs WHERE id = ?", (job_id,))
     initial_status = jobs[0]["status"]
@@ -90,7 +107,7 @@ def main():
     # Clean up output and moved original
     if output_mov.exists():
         output_mov.unlink()
-    
+
     orig_dir = config_mgr.get_resolved_path("originals_folder")
     orig_file = orig_dir / "persistence_test_src.mp4"
     if orig_file.exists():
@@ -100,13 +117,14 @@ def main():
     with open(log_file, "w", encoding="utf-8") as f:
         f.write("=== Queue Persistence Validation Log ===\n")
         f.write(f"Mid-transcode status: {initial_status}\n")
-        f.write(f"Simulated crash state: status=converting, progress=45.0%\n")
+        f.write("Simulated crash state: status=converting, progress=45.0%\n")
         f.write(f"After crash and recovery status: {recovered_status}\n")
         f.write(f"After crash and recovery progress: {recovered_progress}%\n")
         f.write(f"Re-execution outcome: {success}\n")
         f.write(f"Final output file verified: {output_exists}\n")
 
     print(f"Evidence log written to: {log_file}")
+
 
 if __name__ == "__main__":
     main()

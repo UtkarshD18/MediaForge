@@ -28,10 +28,12 @@ from abc import ABC, abstractmethod
 from pathlib import Path
 from typing import Any
 
+
 class BaseProcessor(ABC):
     """
     Defines the contract for pipeline processing modules.
     """
+
     def __init__(self, config: dict[str, Any]) -> None:
         self.config = config
 
@@ -47,12 +49,12 @@ class BaseProcessor(ABC):
     def run(self, input_path: Path, output_dir: Path, context: dict[str, Any]) -> bool:
         """
         Executes the processor logic.
-        
+
         Args:
             input_path: Path to the original input file.
             output_dir: Target destination folder.
             context: Shared dict state across processors (e.g. metadata).
-            
+
         Returns:
             True if the execution completed successfully, False otherwise.
         """
@@ -71,6 +73,7 @@ from pathlib import Path
 from typing import Any
 from src.processors.base import BaseProcessor
 
+
 class LoudnessNormalizer(BaseProcessor):
     @property
     def name(self) -> str:
@@ -79,17 +82,22 @@ class LoudnessNormalizer(BaseProcessor):
     def run(self, input_path: Path, output_dir: Path, context: dict[str, Any]) -> bool:
         # Check if target loudness is specified
         target_db = self.config.get("target_loudness_db", -24)
-        
+
         # Build ffmpeg call to run loudnorm filter
         temp_out = output_dir / f"{input_path.stem}_norm{input_path.suffix}"
-        
+
         cmd = [
-            "ffmpeg", "-y", "-i", str(input_path),
-            "-af", f"loudnorm=I={target_db}:TP=-1.5:LRA=11",
-            "-c:v", "copy", # Copy video stream without re-encoding
-            str(temp_out)
+            "ffmpeg",
+            "-y",
+            "-i",
+            str(input_path),
+            "-af",
+            f"loudnorm=I={target_db}:TP=-1.5:LRA=11",
+            "-c:v",
+            "copy",  # Copy video stream without re-encoding
+            str(temp_out),
         ]
-        
+
         result = subprocess.run(cmd, capture_output=True)
         if result.returncode == 0:
             # Overwrite original with normalized version

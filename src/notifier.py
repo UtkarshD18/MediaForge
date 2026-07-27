@@ -10,6 +10,7 @@ class Notifier:
     """
     Subscribes to EventBus notifications and issues KDE desktop alerts via notify-send.
     """
+
     def __init__(self, notification_toggle: bool = True) -> None:
         self.enabled = notification_toggle
         self.logger = get_logger()
@@ -23,14 +24,8 @@ class Notifier:
         """
         if not self.enabled:
             return
-            
-        cmd = [
-            "notify-send",
-            "-t", "5000",
-            "-u", urgency,
-            title,
-            message
-        ]
+
+        cmd = ["notify-send", "-t", "5000", "-u", urgency, title, message]
         try:
             subprocess.run(cmd, capture_output=True, check=True)
         except Exception as e:
@@ -42,20 +37,14 @@ class Notifier:
         """
         filepath = Path(data.get("filepath", "Unknown"))
         profile = data.get("profile_name", "Unknown").upper()
-        self.notify(
-            "🎬 Conversion Started",
-            f"{filepath.name}\n↓\n{profile}"
-        )
+        self.notify("🎬 Conversion Started", f"{filepath.name}\n↓\n{profile}")
 
     def on_job_finished(self, data: dict[str, Any]) -> None:
         """
         Triggered when conversion finishes.
         """
         filename = data.get("original_name", "file")
-        self.notify(
-            "✅ Ready for Editor",
-            f"{filename} ingestion completed."
-        )
+        self.notify("✅ Ready for Editor", f"{filename} ingestion completed.")
 
     def on_job_failed(self, data: dict[str, Any]) -> None:
         """
@@ -63,11 +52,8 @@ class Notifier:
         """
         filename = data.get("original_name", "file")
         error_msg = data.get("error", "Unknown error")
-        self.notify(
-            "❌ Conversion Failed",
-            f"Failed on {filename}:\n{error_msg}",
-            urgency="critical"
-        )
+        self.notify("❌ Conversion Failed", f"Failed on {filename}:\n{error_msg}", urgency="critical")
+
 
 def setup_notifier(config: Any) -> Notifier:
     """
@@ -86,7 +72,7 @@ def setup_notifier(config: Any) -> Notifier:
     bus.subscribe(Events.JOB_STARTED, notifier.on_job_started)
     bus.subscribe(Events.JOB_FINISHED, notifier.on_job_finished)
     bus.subscribe(Events.JOB_FAILED, notifier.on_job_failed)
-    
+
     # Also react to settings changing at runtime
     def on_settings_changed(config_obj: Any) -> None:
         feat_enabled = config_obj.features.get("notifications", True) if hasattr(config_obj, "features") else True

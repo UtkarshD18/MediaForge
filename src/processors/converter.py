@@ -13,6 +13,7 @@ class ConversionJob:
     """
     Structured model for a media conversion request.
     """
+
     input_path: Path
     output_path: Path
     video_codec: str
@@ -21,10 +22,12 @@ class ConversionJob:
     duration: float = 0.0
     hwaccel: str | None = None
 
+
 class FFmpegBuilder:
     """
     Compiles list of commands to run FFmpeg with custom profiles and accelerators.
     """
+
     @staticmethod
     def build(job: ConversionJob) -> list[str]:
         cmd = ["ffmpeg", "-y"]
@@ -66,6 +69,7 @@ class FFmpegBuilder:
         cmd.append(str(job.output_path))
         return cmd
 
+
 def detect_gpu_support() -> str | None:
     """
     Query ffmpeg to discover supported hardware decoding features.
@@ -73,15 +77,9 @@ def detect_gpu_support() -> str | None:
     """
     logger = get_logger()
     try:
-        result = subprocess.run(
-            ["ffmpeg", "-hwaccels"],
-            capture_output=True,
-            text=True,
-            check=True,
-            timeout=5.0
-        )
+        result = subprocess.run(["ffmpeg", "-hwaccels"], capture_output=True, text=True, check=True, timeout=5.0)
         output = result.stdout.lower()
-        
+
         # Check matching drivers in order of speed
         if "cuda" in output:
             logger.info("NVIDIA CUDA hardware decoding detected.")
@@ -92,17 +90,16 @@ def detect_gpu_support() -> str | None:
         elif "vaapi" in output:
             logger.info("AMD VAAPI hardware decoding detected.")
             return "vaapi"
-        
+
         logger.info("No supported GPU acceleration method found. Using CPU decoding.")
         return None
     except Exception as e:
         logger.warning(f"Error checking GPU support via ffmpeg -hwaccels: {e}. Defaulting to CPU.")
         return None
 
+
 def run_conversion(
-    job: ConversionJob,
-    progress_callback: Callable[[float, float, float], None],
-    cancel_event: threading.Event
+    job: ConversionJob, progress_callback: Callable[[float, float, float], None], cancel_event: threading.Event
 ) -> None:
     """
     Runs FFmpeg, parses its stdout real-time progress flags, handles ETAs,
@@ -111,26 +108,21 @@ def run_conversion(
     logger = get_logger()
     cmd = FFmpegBuilder.build(job)
     logger.info(f"Compiling FFmpeg execution command: {' '.join(cmd)}")
-    
+
     # Startup process
     process = subprocess.Popen(
-        cmd,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE,
-        text=True,
-        bufsize=1,
-        universal_newlines=True
+        cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, bufsize=1, universal_newlines=True
     )
-    
+
     # Track metrics
     current_percent = 0.0
     current_speed = 1.0
     current_eta = 0.0
-    
+
     # Matcher regexes
     us_pattern = re.compile(r"out_time_us=(\d+)")
     speed_pattern = re.compile(r"speed=\s*([\d\.]+)x")
-    
+
     # Loop reader thread
     def monitor_cancel():
         while process.poll() is None:
@@ -146,7 +138,7 @@ def run_conversion(
 
     cancel_thread = threading.Thread(target=monitor_cancel, daemon=True)
     cancel_thread.start()
-    
+
     try:
         # Read line by line from progress pipe stdout
         stdout = process.stdout
@@ -155,14 +147,14 @@ def run_conversion(
                 line = line.strip()
                 if not line:
                     continue
-                
+
                 # Check microseconds timestamp
                 us_match = us_pattern.match(line)
                 if us_match and job.duration > 0:
                     us = int(us_match.group(1))
                     sec = us / 1_000_000.0
                     current_percent = min((sec / job.duration) * 100.0, 100.0)
-                    
+
                 # Check speed ratio
                 speed_match = speed_pattern.match(line)
                 if speed_match:
@@ -170,20 +162,20 @@ def run_conversion(
                         current_speed = float(speed_match.group(1))
                     except ValueError:
                         current_speed = 1.0
-                    
+
                     # Calculate dynamic ETA
                     if current_percent < 100.0 and current_speed > 0:
                         remaining_seconds = (job.duration - (current_percent * job.duration / 100.0)) / current_speed
                         current_eta = max(remaining_seconds, 0.0)
                     else:
                         current_eta = 0.0
-                        
+
                     progress_callback(current_percent, current_eta, current_speed)
 
         # Wait for finish
         stdout_data, stderr_data = process.communicate()
         return_code = process.returncode
-        
+
         if cancel_event.is_set():
             # Clean up partial output file
             if job.output_path.exists():
@@ -196,11 +188,11 @@ def run_conversion(
         if return_code != 0:
             err_msg = stderr_data or "FFmpeg exited with non-zero status"
             # Extract main error line
-            err_lines = [l for l in err_msg.splitlines() if l.strip()]
+            err_lines = [line for line in err_msg.splitlines() if line.strip()]
             main_err = err_lines[-1] if err_lines else err_msg
             logger.error(f"FFmpeg error output: {err_msg}")
             raise RuntimeError(f"FFmpeg conversion failed: {main_err}")
-            
+
     except Exception as e:
         # Guarantee cleanup on errors
         if process.poll() is None:
