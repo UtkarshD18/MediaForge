@@ -1,0 +1,16 @@
+# MediaForge Example Configuration for Low-Power or Laptop Environments
+version: 1
+incoming_folder: "~/Videos/Incoming"
+originals_folder: "~/Videos/Originals"
+resolve_clips_folder: "~/Videos/DaVinci/clips"
+active_profile: "proxy"     # Low resolution proxy transcodes to save battery and drive space
+overwrite_existing: true
+notification_toggle: false
+logging_level: "WARNING"
+stability_duration: 1.0
+
+features:
+  thumbnails: false          # Skip background thumbnail generation
+  notifications: false       # Disable notify-send alerts
+  gpu_monitor: false         # Disable nvidia-smi polling entirely
+  resolve_integration: false

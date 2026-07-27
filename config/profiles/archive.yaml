@@ -1,0 +1,3 @@
+video_codec: "copy"
+audio_codec: "copy"
+ext: "mov"

@@ -1,0 +1,4 @@
+video_codec: "prores"
+profile: "3"
+audio_codec: "pcm_s16le"
+ext: "mov"

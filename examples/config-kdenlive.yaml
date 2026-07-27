@@ -1,0 +1,16 @@
+# MediaForge Example Configuration for Kdenlive Ingestion
+version: 1
+incoming_folder: "~/Videos/Incoming"
+originals_folder: "~/Videos/Originals"
+resolve_clips_folder: "~/Videos/Kdenlive/clips"
+active_profile: "social"    # H.264 profiles suitable for quick timelines
+overwrite_existing: false
+notification_toggle: true
+logging_level: "INFO"
+stability_duration: 1.5
+
+features:
+  thumbnails: true
+  notifications: true
+  gpu_monitor: true
+  resolve_integration: false  # Turn off DaVinci Resolve diagnostic warnings

@@ -1,0 +1,16 @@
+# MediaForge Example Configuration for CPU-Only Environments
+version: 1
+incoming_folder: "~/Videos/Incoming"
+originals_folder: "~/Videos/Originals"
+resolve_clips_folder: "~/Videos/DaVinci/clips"
+active_profile: "social"
+overwrite_existing: false
+notification_toggle: true
+logging_level: "INFO"
+stability_duration: 3.0
+
+features:
+  thumbnails: true
+  notifications: true
+  gpu_monitor: false   # Disable GPU monitor as there is no Nvidia card
+  resolve_integration: true

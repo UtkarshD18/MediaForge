@@ -1,0 +1,16 @@
+# MediaForge Example Configuration for GPU Workstations
+version: 1
+incoming_folder: "~/Videos/Incoming"
+originals_folder: "~/Videos/Originals"
+resolve_clips_folder: "~/Videos/DaVinci/clips"
+active_profile: "youtube"
+overwrite_existing: false
+notification_toggle: true
+logging_level: "INFO"
+stability_duration: 2.0
+
+features:
+  thumbnails: true
+  notifications: true
+  gpu_monitor: true
+  resolve_integration: true

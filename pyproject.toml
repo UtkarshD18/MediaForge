@@ -1,0 +1,40 @@
+[project]
+name = "mediaforge"
+version = "0.1.0-rc1"
+description = "A high-performance automated ingestion utility for video editors on Linux."
+readme = "README.md"
+requires-python = ">=3.11"
+license = { text = "MIT" }
+authors = [
+    { name = "MediaForge Contributors" }
+]
+dependencies = [
+    "watchdog>=3.0.0",
+    "PyYAML>=6.0",
+    "PyQt6>=6.5.0",
+]
+
+[project.scripts]
+mediaforge = "src.main:main"
+
+[build-system]
+requires = ["setuptools>=61.0.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools]
+packages = ["src"]
+
+[tool.ruff]
+line-length = 120
+target-version = "py313"
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "B"]
+ignore = ["E501"] # Avoid line length warnings since formatting handles wrap constraints
+
+[tool.mypy]
+python_version = "3.13"
+warn_return_any = true
+warn_unused_configs = true
+ignore_missing_imports = true
+explicit_package_bases = true
